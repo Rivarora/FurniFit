@@ -8,12 +8,16 @@ function App() {
   const [roomImage, setRoomImage] = useState(null);
   const roomRef = useRef(null);
 
+  // Undo/Redo history stacks
+  const [history, setHistory] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+
   // Furniture items state
   const [furnitureItems, setFurnitureItems] = useState(() => {
     const saved = localStorage.getItem("furnifit-layout");
     return saved ? JSON.parse(saved) : [];
   });
-
+  
   // Saved rooms state: multiple named layouts
   const [savedRooms, setSavedRooms] = useState(() => {
     const saved = localStorage.getItem("furnifit-rooms");
@@ -28,9 +32,16 @@ function App() {
     localStorage.setItem("furnifit-layout", JSON.stringify(furnitureItems));
   }, [furnitureItems]);
 
-  // Add furniture
+  // Push current furnitureItems state to history for undo, clear redo stack
+  const pushToHistory = (newFurnitureItems) => {
+    setHistory((h) => [...h, furnitureItems]);
+    setRedoStack([]);
+    setFurnitureItems(newFurnitureItems);
+  };
+  const [snapToGrid, setSnapToGrid] = useState(true); // NEW toggle state
+  // Add furniture with history tracking
   const addFurniture = (item) => {
-    setFurnitureItems([
+    const newFurniture = [
       ...furnitureItems,
       {
         ...item,
@@ -40,12 +51,13 @@ function App() {
         width: 80,
         rotation: 0,
       },
-    ]);
+    ];
+    pushToHistory(newFurniture);
   };
 
   const GRID_SIZE = 20;
 
-  // Drag with snap to grid
+  // Drag with snap to grid with history tracking
   const handleDrag = (e, index) => {
     const updatedItems = [...furnitureItems];
     const rect = e.target.parentNode.getBoundingClientRect();
@@ -53,51 +65,71 @@ function App() {
     let newX = e.clientX - rect.left - 40;
     let newY = e.clientY - rect.top - 40;
 
-    // Snap to grid
     newX = Math.round(newX / GRID_SIZE) * GRID_SIZE;
     newY = Math.round(newY / GRID_SIZE) * GRID_SIZE;
 
     updatedItems[index].x = newX;
     updatedItems[index].y = newY;
-    setFurnitureItems(updatedItems);
+
+    pushToHistory(updatedItems);
   };
 
-  // Rotate furniture by 15 degrees
+  // Rotate furniture with history
   const rotateItem = (index) => {
     const updated = [...furnitureItems];
     updated[index] = {
       ...updated[index],
       rotation: updated[index].rotation + 15,
     };
-    setFurnitureItems(updated);
+    pushToHistory(updated);
   };
 
-  // Resize furniture width
+  // Resize furniture with history
   const resizeItem = (index, delta) => {
     const updated = [...furnitureItems];
     updated[index] = {
       ...updated[index],
       width: Math.max(30, updated[index].width + delta),
     };
-    setFurnitureItems(updated);
+    pushToHistory(updated);
   };
 
-  // Delete single furniture item
+  // Delete furniture with history
   const deleteItem = (index) => {
     const updated = [...furnitureItems];
     updated.splice(index, 1);
-    setFurnitureItems(updated);
+    pushToHistory(updated);
   };
 
-  // Clear entire layout & room image + localStorage
+  // Clear layout with history
   const clearLayout = () => {
+    setHistory((h) => [...h, furnitureItems]);
+    setRedoStack([]);
     setFurnitureItems([]);
     setRoomImage(null);
     setCurrentRoomName("");
     localStorage.removeItem("furnifit-layout");
   };
 
-  // Export the room preview as image
+  // Undo action
+  const undo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    setHistory((h) => h.slice(0, h.length - 1));
+    setRedoStack((r) => [furnitureItems, ...r]);
+    setFurnitureItems(previous);
+  };
+
+  // Redo action
+  const redo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[0];
+    setRedoStack((r) => r.slice(1));
+    setHistory((h) => [...h, furnitureItems]);
+    setFurnitureItems(next);
+  };
+
+  // Export room as image
   const exportAsImage = () => {
     if (!roomRef.current) return;
 
@@ -151,6 +183,8 @@ function App() {
     setRoomImage(room.roomImage);
     setFurnitureItems(room.furnitureItems);
     setCurrentRoomName(name);
+    setHistory([]);
+    setRedoStack([]);
   };
 
   // Delete saved room by name
@@ -168,12 +202,12 @@ function App() {
       setRoomImage(null);
       setFurnitureItems([]);
       setCurrentRoomName("");
+      setHistory([]);
+      setRedoStack([]);
     }
 
     localStorage.setItem("furnifit-rooms", JSON.stringify(newSavedRooms));
   };
-
-  // --- JSX ---
 
   return (
     <div className="App">
@@ -182,13 +216,30 @@ function App() {
       <div style={{ marginBottom: 10 }}>
         <UploadRoom setRoomImage={setRoomImage} />
         <FurniturePanel addFurniture={addFurniture} />
-
+        <label style={{ marginLeft: 10 }}>
+          <input
+            type="checkbox"
+            checked={snapToGrid}
+            onChange={(e) => setSnapToGrid(e.target.checked)}
+          />{" "}
+          Snap to Grid
+        </label>
         <button onClick={clearLayout} style={{ marginTop: "10px" }}>
           🧹 Clear Room
         </button>
 
         <button onClick={exportAsImage} style={{ marginLeft: "10px" }}>
           📸 Export Layout
+        </button>
+      </div>
+
+      {/* Undo / Redo Buttons */}
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={undo} disabled={history.length === 0}>
+          ↩️ Undo
+        </button>
+        <button onClick={redo} disabled={redoStack.length === 0} style={{ marginLeft: 10 }}>
+          ↪️ Redo
         </button>
       </div>
 
@@ -261,6 +312,7 @@ function App() {
 }
 
 export default App;
+
 
 
 
